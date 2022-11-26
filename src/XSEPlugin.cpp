@@ -89,7 +89,7 @@ auto UpdateMaterialParallax(RE::TESObjectREFR* a_ref, RE::NiAVObject* a_node)
 							found = a_fileStream.good();
 						}
 						if (found) {
-							if (const auto newMaterial = static_cast<RE::BSLightingShaderMaterialBase*>(material->Create()); newMaterial) {
+							if (const auto newMaterial = static_cast<RE::BSLightingShaderMaterialParallax*>(material->Create()); newMaterial) {
 								logger::info("Creating parallax at {}", parallax);
 								newMaterial->CopyMembers(material);
 								newMaterial->ClearTextures();
@@ -111,7 +111,7 @@ auto UpdateMaterialParallax(RE::TESObjectREFR* a_ref, RE::NiAVObject* a_node)
 								lightingShader->SetupGeometry(a_geometry);
 								lightingShader->FinishSetupGeometry(a_geometry);
 
-								newMaterial->~BSLightingShaderMaterialBase();
+								newMaterial->~BSLightingShaderMaterialParallax();
 								RE::free(newMaterial);
 							} else {
 								logger::error("Failed to create material {}", parallax);
