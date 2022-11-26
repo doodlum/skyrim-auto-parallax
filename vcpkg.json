@@ -6,6 +6,17 @@
   "dependencies": [
     "commonlibsse-ng",
     "xbyak",
-    "srell"
+    "magic-enum",
+    "fmt"
+  ],
+
+  "builtin-baseline": "62d01b70df227850b728f5050418b917ad6d2b32",
+  "overrides": [
+    {
+      "name": "fmt",
+      "version": "8.0.1"
+    }
   ]
+
+
 }

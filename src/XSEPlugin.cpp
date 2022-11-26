@@ -1,13 +1,12 @@
 #include <Detours.h>
-#include <srell.hpp>
 
 //	LoadTexture(path, 1, newTexture, false);
-//static void LoadTexture(const char* path, uint8_t unk1, RE::NiPointer<RE::NiTexture>& texture, bool unk2)
-//{
-//	using func_t = decltype(&LoadTexture);
-//	REL::Relocation<func_t> func{ REL::RelocationID(26570, 27203) };
-//	func(path, unk1, texture, unk2);
-//}
+static void LoadTexture(const char* path, uint8_t unk1, RE::NiPointer<RE::NiTexture>& texture, bool unk2)
+{
+	using func_t = decltype(&LoadTexture);
+	REL::Relocation<func_t> func{ REL::RelocationID(26570, 27203) };
+	func(path, unk1, texture, unk2);
+}
 
 //Source, 0, &newTexture, 0, 0, 0);
 //RE::NiSourceTexture* BSShaderManager_GetTexture(char* a_source, bool a_background, RE::NiSourceTexture& a_texture, bool unk1 = false, bool unk2 = false, bool unk3 = false)
@@ -31,16 +30,162 @@ uint32_t InitializeShader(RE::BSLightingShaderProperty* a_shader, RE::BSGeometry
 	return func(a_shader, a_geometry);
 }
 
+#define MAGIC_ENUM_RANGE_MAX 256
+#include <magic_enum.hpp>
+#include <format>
+
+using filter_results = std::vector<std::pair<std::string, std::string>>;
+
+[[nodiscard]] std::string quoted(std::string_view a_str)
+{
+	return fmt::format("\"{}\""sv, a_str);
+}
+
+class BSShaderPropertyIntrospection
+{
+public:
+	using value_type = RE::BSShaderProperty;
+
+	static void filter(
+		filter_results& a_results,
+		const void* a_ptr, int tab_depth = 0) noexcept
+	{
+		const auto form = static_cast<const value_type*>(a_ptr);
+
+		try {
+			const auto formFlags = form->flags;
+			a_results.emplace_back(
+				fmt::format(
+					"{:\t>{}}Flags"sv,
+					"",
+					tab_depth),
+				fmt::format(
+					"0x{:08X}"sv,
+					formFlags.get()));
+		} catch (...) {}
+		try {
+			const auto name = form->name.c_str();
+			if (name && name[0])
+				a_results.emplace_back(
+					fmt::format(
+						"{:\t>{}}Name"sv,
+						"",
+						tab_depth),
+					quoted(name));
+		} catch (...) {}
+		try {
+			const auto rttiname = form->GetRTTI() ? form->GetRTTI()->GetName() : ""sv;
+			if (!rttiname.empty())
+				a_results.emplace_back(
+					fmt::format(
+						"{:\t>{}}RTTIName"sv,
+						"",
+						tab_depth),
+					quoted(rttiname));
+		} catch (...) {}
+		try {
+			const auto formType = form->GetType();
+			const auto formTypeName = magic_enum::enum_name(formType);
+			if (!formTypeName.empty())
+				a_results.emplace_back(
+					fmt::format(
+						"{:\t>{}}NiPropertyType"sv,
+						"",
+						tab_depth),
+					fmt::format(
+						"{} ({:02})"sv,
+						formTypeName,
+						std::to_underlying(formType)));
+		} catch (...) {}
+		try {
+			for (auto i = 0; i < form->GetExtraDataSize(); i++) {
+				const auto extraData = form->GetExtraDataAt((uint16_t)i);
+				if (!extraData->GetName().empty()) {
+					const auto name = extraData->GetName().c_str();
+					if (name && name[0])
+						a_results.emplace_back(
+							fmt::format(
+								"{:\t>{}}ExtraData[{}] Name"sv,
+								"",
+								tab_depth,
+								i),
+							quoted(name));
+				}
+			}
+		} catch (...) {}
+	}
+};
+
+
+class BSShaderMaterialIntrospection
+{
+public:
+	using value_type = RE::BSShaderMaterial;
+
+	static void filter(
+		filter_results& a_results,
+		const void* a_ptr, int tab_depth = 0) noexcept
+	{
+		const auto object = static_cast<const value_type*>(a_ptr);
+		if (!object)
+			return;
+		try {
+			const auto& feature = object->GetFeature();
+			const auto  featureName = magic_enum::enum_name(feature);
+			if (!featureName.empty())
+				a_results.emplace_back(
+					fmt::format(
+						"{:\t>{}}Feature"sv,
+						"",
+						tab_depth),
+					featureName);
+		} catch (...) {}
+
+		try {
+			const auto type = object->GetType();
+			const auto typeName = magic_enum::enum_name(type);
+			if (!typeName.empty())
+				a_results.emplace_back(
+					fmt::format(
+						"{:\t>{}}Type"sv,
+						"",
+						tab_depth),
+					quoted(typeName));
+		} catch (...) {}
+	}
+};
 void PatchD3D11();
 
-void sanitize_path(std::string& a_path)
+void Dump(RE::BSShaderProperty* a_prop)
 {
-	std::ranges::transform(a_path, a_path.begin(),
-		[](char c) { return static_cast<char>(std::tolower(c)); });
+	filter_results results;
+	BSShaderPropertyIntrospection::filter(results, a_prop, 1);
+	std::string result = "";
+	if (!results.empty()) {
+		for (const auto& [key, value] : results) {
+			result += fmt::format(
+				"\n\t\t{}: {}"sv,
+				key,
+				value);
+		}
+	}
+	logger::info("{}", result);
+}
 
-	a_path = srell::regex_replace(a_path, srell::regex("/+|\\\\+"), "\\");
-	a_path = srell::regex_replace(a_path, srell::regex("^\\\\+"), "");
-	a_path = srell::regex_replace(a_path, srell::regex(R"(.*?[^\s]textures\\|^textures\\)", srell::regex::icase), "");
+void Dump(RE::BSShaderMaterial* a_mat)
+{
+	filter_results results;
+	BSShaderMaterialIntrospection::filter(results, a_mat, 1);
+	std::string result = "";
+	if (!results.empty()) {
+		for (const auto& [key, value] : results) {
+			result += fmt::format(
+				"\n\t\t{}: {}"sv,
+				key,
+				value);
+		}
+	}
+	logger::info("{}", result);
 }
 
 //RE::BSShaderTextureSet* create_textureset(char** a_value)
@@ -62,7 +207,9 @@ RE::NiTexturePtr* GetHeightTexture(RE::BSLightingShaderMaterialParallax* a_mater
 	return (RE::NiTexturePtr*)&a_material->heightTexture;
 }
 
-auto UpdateMaterialParallax(RE::TESObjectREFR* a_ref, RE::NiAVObject* a_node)
+bool debugParallaxObjects = false;
+
+auto UpdateMaterialParallax([[maybe_unused]] RE::TESObjectREFR* a_ref, RE::NiAVObject* a_node)
 {
 	using namespace RE;
 	BSVisit::TraverseScenegraphGeometries(a_node, [&](BSGeometry* a_geometry) -> BSVisit::BSVisitControl {
@@ -74,6 +221,8 @@ auto UpdateMaterialParallax(RE::TESObjectREFR* a_ref, RE::NiAVObject* a_node)
 			if (lightingShader) {
 				const auto material = static_cast<BSLightingShaderMaterialBase*>(lightingShader->material);
 				const auto textureSet = material ? material->textureSet : RE::NiPointer<RE::BSTextureSet>();
+				std::string diffusey = material->textureSet->GetTexturePath(BSTextureSet::Texture::kDiffuse);
+
 				if (material->GetFeature() == BSShaderMaterial::Feature::kDefault) {
 					if (material->textureSet) {
 						std::string diffuse = material->textureSet->GetTexturePath(BSTextureSet::Texture::kDiffuse);
@@ -82,37 +231,52 @@ auto UpdateMaterialParallax(RE::TESObjectREFR* a_ref, RE::NiAVObject* a_node)
 						} else if (diffuse.rfind(".dds") == diffuse.length() - 4) {
 							diffuse = diffuse.substr(0, diffuse.length() - 4);
 						}
-						std::string parallax = std::format("{}_p.dds", diffuse);
+						std::string parallax = fmt::format("{}_p.dds", diffuse);
 						bool found = false;
 						{
 							BSResourceNiBinaryStream a_fileStream{ parallax };
 							found = a_fileStream.good();
 						}
 						if (found) {
-							if (const auto newMaterial = static_cast<RE::BSLightingShaderMaterialParallax*>(material->Create()); newMaterial) {
+							if (auto newMaterial = BSLightingShaderMaterialParallax::CreateMaterial<BSLightingShaderMaterialParallax>(); newMaterial) {
 								logger::info("Creating parallax at {}", parallax);
-								newMaterial->CopyMembers(material);
+								newMaterial->CopyBaseMembers(material);
 								newMaterial->ClearTextures();
 
-								if (const auto newTextureSet = RE::BSShaderTextureSet::Create(); newTextureSet) {
-									for (uint32_t i = 0; i < BSTextureSet::Textures::kUsedTotal; i++) {
-										if ((BSTextureSet::Texture)i != BSTextureSet::Texture::kHeight) {
-											newTextureSet->SetTexturePath((BSTextureSet::Texture)i, material->textureSet->GetTexturePath((BSTextureSet::Texture)i));
+								if (!debugParallaxObjects) {
+									if (const auto newTextureSet = RE::BSShaderTextureSet::Create(); newTextureSet) {
+										for (uint32_t i = 0; i < BSTextureSet::Textures::kUsedTotal; i++) {
+											if ((BSTextureSet::Texture)i != BSTextureSet::Texture::kHeight) {
+												newTextureSet->SetTexturePath((BSTextureSet::Texture)i, material->textureSet->GetTexturePath((BSTextureSet::Texture)i));
+											}
 										}
+										newTextureSet->SetTexturePath(BSTextureSet::Texture::kHeight, parallax.c_str());
+										newMaterial->textureSet->SetTexturePath(BSTextureSet::Texture::kHeight, parallax.c_str());
+										newMaterial->OnLoadTextureSet(0, newTextureSet);
 									}
-									newTextureSet->SetTexturePath(BSTextureSet::Texture::kHeight, parallax.c_str());
-									newMaterial->OnLoadTextureSet(0, newTextureSet);
 								}
 
 								lightingShader->SetFlags(BSShaderProperty::EShaderPropertyFlag8::kParallax, true);
-
 								lightingShader->SetMaterial(newMaterial, true);
+								//InvalidateTextures(lightingShader, 0);
+								//InitializeShader(lightingShader, a_geometry);
 
+								//NiPointer<NiTexture> newTexture;
+								//LoadTexture(parallax.c_str(), 1, newTexture, false);
+
+								//NiTexturePtr* targetTexture = GetHeightTexture(newMaterial);
+								//if (targetTexture) {
+								//	*targetTexture = newTexture;
+								//}
 								lightingShader->SetupGeometry(a_geometry);
 								lightingShader->FinishSetupGeometry(a_geometry);
 
 								newMaterial->~BSLightingShaderMaterialParallax();
 								RE::free(newMaterial);
+
+								auto newmat = static_cast<BSLightingShaderMaterialParallax*>(lightingShader->material);
+								if (newmat->heightTexture)
+									logger::info("has height");
 							} else {
 								logger::error("Failed to create material {}", parallax);
 							}
@@ -121,7 +285,25 @@ auto UpdateMaterialParallax(RE::TESObjectREFR* a_ref, RE::NiAVObject* a_node)
 						logger::warn("No texture set {:X}", a_ref->GetFormID());
 					}
 				}
-			}
+				if (diffusey.contains("StoneWall01")) {
+					Dump(lightingShader);
+					Dump(lightingShader->material);
+					for (std::uint8_t i = 0; i < 64; i++) {
+						bool has = lightingShader->flags.any((BSShaderProperty::EShaderPropertyFlag)i);
+						if (has)
+							logger::info("Flag: {}", magic_enum::enum_name((BSShaderProperty::EShaderPropertyFlag8)i));
+					}
+					for (uint32_t i = 0; i < BSTextureSet::Textures::kUsedTotal; i++) {
+						if ((BSTextureSet::Texture)i != BSTextureSet::Texture::kHeight) {
+							auto pathy = textureSet->GetTexturePath((BSTextureSet::Texture)i);
+							if (pathy)
+								logger::info("Texture: {} {}", i, pathy);
+						}
+					}
+				}
+			} 
+
+			
 		}
 
 		return BSVisit::BSVisitControl::kContinue;
