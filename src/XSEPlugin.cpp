@@ -1,12 +1,13 @@
 #include <Detours.h>
+#include <srell.hpp>
 
 //	LoadTexture(path, 1, newTexture, false);
-static void LoadTexture(const char* path, uint8_t unk1, RE::NiPointer<RE::NiTexture>& texture, bool unk2)
-{
-	using func_t = decltype(&LoadTexture);
-	REL::Relocation<func_t> func{ REL::RelocationID(26570, 27203) };
-	func(path, unk1, texture, unk2);
-}
+//static void LoadTexture(const char* path, uint8_t unk1, RE::NiPointer<RE::NiTexture>& texture, bool unk2)
+//{
+//	using func_t = decltype(&LoadTexture);
+//	REL::Relocation<func_t> func{ REL::RelocationID(26570, 27203) };
+//	func(path, unk1, texture, unk2);
+//}
 
 //Source, 0, &newTexture, 0, 0, 0);
 //RE::NiSourceTexture* BSShaderManager_GetTexture(char* a_source, bool a_background, RE::NiSourceTexture& a_texture, bool unk1 = false, bool unk2 = false, bool unk3 = false)
@@ -32,6 +33,29 @@ uint32_t InitializeShader(RE::BSLightingShaderProperty* a_shader, RE::BSGeometry
 
 void PatchD3D11();
 
+void sanitize_path(std::string& a_path)
+{
+	std::ranges::transform(a_path, a_path.begin(),
+		[](char c) { return static_cast<char>(std::tolower(c)); });
+
+	a_path = srell::regex_replace(a_path, srell::regex("/+|\\\\+"), "\\");
+	a_path = srell::regex_replace(a_path, srell::regex("^\\\\+"), "");
+	a_path = srell::regex_replace(a_path, srell::regex(R"(.*?[^\s]textures\\|^textures\\)", srell::regex::icase), "");
+}
+
+//RE::BSShaderTextureSet* create_textureset(char** a_value)
+//{
+//	if (const auto textureset = RE::BSShaderTextureSet::Create(); textureset) {
+//		for (const auto& type : types) {
+//			if (!string::is_empty(a_value[type])) {
+//				textureset->SetTexturePath(type, a_value[type]);
+//			}
+//		}
+//		return textureset;
+//	}
+//	return nullptr;
+//}
+
 
 RE::NiTexturePtr* GetHeightTexture(RE::BSLightingShaderMaterialParallax* a_material)
 {
@@ -48,45 +72,51 @@ auto UpdateMaterialParallax(RE::TESObjectREFR* a_ref, RE::NiAVObject* a_node)
 		if (effect) {
 			auto lightingShader = netimmerse_cast<BSLightingShaderProperty*>(effect);
 			if (lightingShader) {
-				auto material = static_cast<BSLightingShaderMaterialBase*>(lightingShader->material);
+				const auto material = static_cast<BSLightingShaderMaterialBase*>(lightingShader->material);
+				const auto textureSet = material ? material->textureSet : RE::NiPointer<RE::BSTextureSet>();
 				if (material->GetFeature() == BSShaderMaterial::Feature::kDefault) {
 					if (material->textureSet) {
 						std::string diffuse = material->textureSet->GetTexturePath(BSTextureSet::Texture::kDiffuse);
-						//logger::info("Before rename {}", diffuse);
 						if (diffuse.rfind("_d.dds") == diffuse.length() - 6) {
 							diffuse = diffuse.substr(0, diffuse.length() - 6);
 						} else if (diffuse.rfind(".dds") == diffuse.length() - 4) {
 							diffuse = diffuse.substr(0, diffuse.length() - 4);
 						}
 						std::string parallax = std::format("{}_p.dds", diffuse);
-						//logger::info("After rename {}", parallax);
-						bool good = false;
+						bool found = false;
 						{
 							BSResourceNiBinaryStream a_fileStream{ parallax };
-							good = a_fileStream.good();
+							found = a_fileStream.good();
 						}
-						if (good) {
-							good = true;
-							logger::warn("Found parallax at {}", parallax);
-							BSLightingShaderMaterialParallax* parallaxMaterial = BSLightingShaderMaterialBase::CreateMaterial<BSLightingShaderMaterialParallax>();
-							parallaxMaterial->CopyBaseMembers(material);
-							NiPointer<BSShaderTextureSet> niTextureSet{ BSShaderTextureSet::Create() };
-							for (uint32_t i = 0; i < BSTextureSet::Textures::kUsedTotal; i++) {
-								niTextureSet->SetTexturePath((BSTextureSet::Texture)i, material->textureSet->GetTexturePath((BSTextureSet::Texture)i));
+						if (found) {
+							if (const auto newMaterial = static_cast<RE::BSLightingShaderMaterialBase*>(material->Create()); newMaterial) {
+								logger::info("Creating parallax at {}", parallax);
+								newMaterial->CopyMembers(material);
+								newMaterial->ClearTextures();
+
+								if (const auto newTextureSet = RE::BSShaderTextureSet::Create(); newTextureSet) {
+									for (uint32_t i = 0; i < BSTextureSet::Textures::kUsedTotal; i++) {
+										if ((BSTextureSet::Texture)i != BSTextureSet::Texture::kHeight) {
+											newTextureSet->SetTexturePath((BSTextureSet::Texture)i, material->textureSet->GetTexturePath((BSTextureSet::Texture)i));
+										}
+									}
+									newTextureSet->SetTexturePath(BSTextureSet::Texture::kHeight, parallax.c_str());
+									newMaterial->OnLoadTextureSet(0, newTextureSet);
+								}
+
+								lightingShader->SetFlags(BSShaderProperty::EShaderPropertyFlag8::kParallax, true);
+
+								lightingShader->SetMaterial(newMaterial, true);
+
+								lightingShader->SetupGeometry(a_geometry);
+								lightingShader->FinishSetupGeometry(a_geometry);
+
+								newMaterial->~BSLightingShaderMaterialBase();
+								RE::free(newMaterial);
+							} else {
+								logger::error("Failed to create material {}", parallax);
 							}
-							niTextureSet->SetTexturePath(BSTextureSet::Texture::kHeight, parallax.c_str());
-							lightingShader->SetFlags(BSShaderProperty::EShaderPropertyFlag8::kParallax, true);
-							lightingShader->SetMaterial(parallaxMaterial, true);
-							((BSLightingShaderMaterialParallax*)lightingShader->material)->ClearTextures();
-							((BSLightingShaderMaterialParallax*)lightingShader->material)->SetTextureSet(niTextureSet);
-							InvalidateTextures(lightingShader, 0);
-							parallaxMaterial->~BSLightingShaderMaterialParallax();				
-							InitializeShader(lightingShader, a_geometry);
-
-						} else {
-							//logger::info("No parallax at {}", parallax);
 						}
-
 					} else {
 						logger::warn("No texture set {:X}", a_ref->GetFormID());
 					}
