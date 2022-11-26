@@ -42,19 +42,19 @@ namespace stl
 		T::func = trampoline.write_call<5>(a_src, T::thunk);
 	}
 
-	template <class F, std::size_t idx, class T>
+	template <class F, size_t index, class T>
 	void write_vfunc()
 	{
-		REL::Relocation<std::uintptr_t> vtbl{ F::VTABLE[0] };
-		T::func = vtbl.write_vfunc(idx, T::thunk);
+		REL::Relocation<std::uintptr_t> vtbl{ F::VTABLE[index] };
+		T::func = vtbl.write_vfunc(T::size, T::thunk);
 	}
 
-	template <std::size_t idx, class T>
-	void write_vfunc(REL::VariantID id)
+	template <class F, class T>
+	void write_vfunc()
 	{
-		REL::Relocation<std::uintptr_t> vtbl{ id };
-		T::func = vtbl.write_vfunc(idx, T::thunk);
+		write_vfunc<F, 0, T>();
 	}
+
 }
 
 namespace logger = SKSE::log;
