@@ -9,6 +9,8 @@ project(
 list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake")
 include(XSEPlugin)
 
+find_path(SRELL_INCLUDE_DIRS "srell.hpp")
+
 target_include_directories(
 	"${PROJECT_NAME}"
 	PUBLIC
@@ -17,6 +19,7 @@ target_include_directories(
 		${CMAKE_CURRENT_BINARY_DIR}/cmake
 		${CMAKE_CURRENT_SOURCE_DIR}/src
 		${SIMPLEINI_INCLUDE_DIRS}
+		${SRELL_INCLUDE_DIRS}
 )
 
 find_package(xbyak CONFIG REQUIRED)
