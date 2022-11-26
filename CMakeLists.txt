@@ -1,8 +1,8 @@
 cmake_minimum_required(VERSION 3.21)
 
 project(
-	ParallaxOcclusion
-	VERSION 1.2.0
+	ParallaxFixer
+	VERSION 1.0.0
 	LANGUAGES CXX
 )
 
@@ -20,17 +20,11 @@ target_include_directories(
 )
 
 find_package(xbyak CONFIG REQUIRED)
-find_package(magic_enum CONFIG REQUIRED)
 
-find_package(fmt CONFIG REQUIRED)
 
 target_link_libraries(
 	${PROJECT_NAME} 
 	PUBLIC
 		CommonLibSSE::CommonLibSSE
 	PRIVATE 
-		magic_enum::magic_enum
-		fmt::fmt
-		debug ${CMAKE_CURRENT_SOURCE_DIR}/extern/detours/x64/Debug/detours.lib
-		optimized ${CMAKE_CURRENT_SOURCE_DIR}/extern/detours/x64/Release/detours.lib
 )
