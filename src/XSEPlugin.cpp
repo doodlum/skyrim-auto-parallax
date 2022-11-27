@@ -1,6 +1,5 @@
-
-#include <SimpleIni.h>
 #include <Detours.h>
+#include <SimpleIni.h>
 
 #define GetSettingBool(a_section, a_setting) a_setting = ini.GetBoolValue(a_section, #a_setting, false);
 
@@ -68,53 +67,74 @@ bool FindParallax(RE::BSTextureSet* a_tex, std::string& o_path)
 	return false;
 }
 
+bool HasNiAlphaProperty(RE::BSGeometry* a_geometry)
+{
+	if (auto niProperty = a_geometry->GetGeometryRuntimeData().properties[RE::BSGeometry::States::State::kProperty].get()) {
+		if (auto alphaProperty = netimmerse_cast<RE::NiAlphaProperty*>(niProperty)) {
+			return true;
+		}
+	}
+	return false;
+}
+
 auto UpdateMaterialParallax(RE::NiAVObject* a_node)
 {
 	RE::BSVisit::TraverseScenegraphGeometries(a_node, [&](RE::BSGeometry* a_geometry) -> RE::BSVisit::BSVisitControl {
 		if (auto effect = a_geometry->GetGeometryRuntimeData().properties[RE::BSGeometry::States::State::kEffect].get()) {
 			if (auto lightingShader = netimmerse_cast<RE::BSLightingShaderProperty*>(effect)) {
 				const auto material = static_cast<RE::BSLightingShaderMaterialBase*>(lightingShader->material);
-				if (material->GetFeature() == RE::BSShaderMaterial::Feature::kDefault && !lightingShader->flags.any(RE::BSShaderProperty::EShaderPropertyFlag::kProjectedUV, RE::BSShaderProperty::EShaderPropertyFlag::kMultiLayerParallax) && lightingShader->flags.any(RE::BSShaderProperty::EShaderPropertyFlag::kVertexColors)) {
-					// It doesn't hurt to check
-					if (material->textureSet) {
-						std::string parallax;
-						// See if any parallax file exists
-						if (FindParallax(material->textureSet.get(), parallax)) {
-							// Create a new material
-							if (auto newMaterial = RE::BSLightingShaderMaterialParallax::CreateMaterial<RE::BSLightingShaderMaterialParallax>(); newMaterial) {
-								newMaterial->CopyBaseMembers(material);
+				if (material->GetFeature() == RE::BSShaderMaterial::Feature::kDefault) {
+					if (!lightingShader->flags.any(RE::BSShaderProperty::EShaderPropertyFlag::kProjectedUV, RE::BSShaderProperty::EShaderPropertyFlag::kSkinned, RE::BSShaderProperty::EShaderPropertyFlag::kLODObjects) 
+						&& lightingShader->flags.any(RE::BSShaderProperty::EShaderPropertyFlag::kVertexColors)
+						&& !HasNiAlphaProperty(a_geometry)) {
+						// It doesn't hurt to check
+						if (material->textureSet) {
+							std::string parallax;
+							// See if any parallax file exists
+							if (FindParallax(material->textureSet.get(), parallax)) {
+								// Create a new material
+								if (auto newMaterial = RE::BSLightingShaderMaterialParallax::CreateMaterial<RE::BSLightingShaderMaterialParallax>(); newMaterial) {
+									newMaterial->CopyBaseMembers(material);
 
-								RE::NiPointer<RE::NiSourceTexture> tex = RE::NiPointer<RE::NiSourceTexture>();
-								// Arguments were determined by tracking original function calls for parallax textures
-								BSShaderManager_GetTexture(parallax.c_str(), 1, tex, 0, 1, 1);
-								newMaterial->heightTexture = tex;
+									RE::NiPointer<RE::NiSourceTexture> tex = RE::NiPointer<RE::NiSourceTexture>();
+									// Arguments were determined by tracking original function calls for parallax textures
+									BSShaderManager_GetTexture(parallax.c_str(), 1, tex, 0, 1, 1);
+									newMaterial->heightTexture = tex;
 
-								if (bEnableDebugLog)
-									logger::info("{}", parallax);
+									if (bEnableDebugLog)
+										logger::info("{}", parallax);
 
-								if (bEnableDebugTextures)
-									newMaterial->ClearTextures();
+									if (bEnableDebugTextures)
+										newMaterial->ClearTextures();
 
-								lightingShader->SetMaterial(newMaterial, true);
-								lightingShader->SetFlags(RE::BSShaderProperty::EShaderPropertyFlag8::kParallax, true);
+									lightingShader->SetMaterial(newMaterial, true);
 
-								// Reinitialise some geometry data
-								lightingShader->SetupGeometry(a_geometry);
-								lightingShader->FinishSetupGeometry(a_geometry);
+									lightingShader->SetFlags(RE::BSShaderProperty::EShaderPropertyFlag8::kParallax, true);
+									lightingShader->SetFlags(RE::BSShaderProperty::EShaderPropertyFlag8::kBackLighting, false);
 
-								// Discard the new material which is no longer needed
-								newMaterial->~BSLightingShaderMaterialParallax();
-								RE::free(newMaterial);
+									//a_geometry->GetGeometryRuntimeData().vertexDesc.SetFlag(RE::BSGraphics::Vertex::Flags::VF_COLORS);
+									//lightingShader->SetFlags(RE::BSShaderProperty::EShaderPropertyFlag8::kVertexColors, true);
+
+									// Reinitialise some geometry data
+									lightingShader->SetupGeometry(a_geometry);
+									lightingShader->FinishSetupGeometry(a_geometry);
+
+									// Discard the new material which is no longer needed
+									newMaterial->~BSLightingShaderMaterialParallax();
+									RE::free(newMaterial);
+								}
 							}
 						}
 					}
 				} else if (material->GetFeature() == RE::BSShaderMaterial::Feature::kParallax) {
 					// ProjectedUV is the conflict.
-					if (!lightingShader->flags.any(RE::BSShaderProperty::EShaderPropertyFlag::kProjectedUV, RE::BSShaderProperty::EShaderPropertyFlag::kMultiLayerParallax) && lightingShader->flags.any(RE::BSShaderProperty::EShaderPropertyFlag::kVertexColors) && material->textureSet)
-						{
+					if (!lightingShader->flags.any(RE::BSShaderProperty::EShaderPropertyFlag::kProjectedUV) && material->textureSet) {
 						auto parallax = static_cast<RE::BSLightingShaderMaterialParallax*>(lightingShader->material);
 						// Only enable if the parallax file handle exists
-						lightingShader->SetFlags(RE::BSShaderProperty::EShaderPropertyFlag8::kParallax, parallax->heightTexture && parallax->heightTexture->unk40);
+						auto enable = parallax->heightTexture && parallax->heightTexture->unk40;
+						if (enable)
+							lightingShader->SetFlags(RE::BSShaderProperty::EShaderPropertyFlag8::kVertexColors, true);
+						lightingShader->SetFlags(RE::BSShaderProperty::EShaderPropertyFlag8::kParallax, enable);
 					} else {
 						lightingShader->SetFlags(RE::BSShaderProperty::EShaderPropertyFlag8::kParallax, false);
 					}
@@ -124,7 +144,6 @@ auto UpdateMaterialParallax(RE::NiAVObject* a_node)
 		return RE::BSVisit::BSVisitControl::kContinue;
 	});
 }
-
 
 struct Hooks
 {
