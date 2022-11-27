@@ -74,7 +74,7 @@ auto UpdateMaterialParallax(RE::NiAVObject* a_node)
 		if (auto effect = a_geometry->GetGeometryRuntimeData().properties[RE::BSGeometry::States::State::kEffect].get()) {
 			if (auto lightingShader = netimmerse_cast<RE::BSLightingShaderProperty*>(effect)) {
 				const auto material = static_cast<RE::BSLightingShaderMaterialBase*>(lightingShader->material);
-				if (material->GetFeature() == RE::BSShaderMaterial::Feature::kDefault && !lightingShader->flags.any(RE::BSShaderProperty::EShaderPropertyFlag::kProjectedUV)) {
+				if (material->GetFeature() == RE::BSShaderMaterial::Feature::kDefault && !lightingShader->flags.any(RE::BSShaderProperty::EShaderPropertyFlag::kProjectedUV) && !lightingShader->flags.any(RE::BSShaderProperty::EShaderPropertyFlag::kMultiLayerParallax)) {
 					// It doesn't hurt to check
 					if (material->textureSet) {
 						std::string parallax;
@@ -110,7 +110,7 @@ auto UpdateMaterialParallax(RE::NiAVObject* a_node)
 					}
 				} else if (material->GetFeature() == RE::BSShaderMaterial::Feature::kParallax) {
 					// ProjectedUV is the conflict.
-					if (!lightingShader->flags.any(RE::BSShaderProperty::EShaderPropertyFlag::kProjectedUV) && material->textureSet) {
+					if (!lightingShader->flags.any(RE::BSShaderProperty::EShaderPropertyFlag::kProjectedUV) && !lightingShader->flags.any(RE::BSShaderProperty::EShaderPropertyFlag::kMultiLayerParallax) && material->textureSet) {
 						auto parallax = static_cast<RE::BSLightingShaderMaterialParallax*>(lightingShader->material);
 						// Only enable if the parallax file handle exists
 						lightingShader->SetFlags(RE::BSShaderProperty::EShaderPropertyFlag8::kParallax, parallax->heightTexture && parallax->heightTexture->unk40);
