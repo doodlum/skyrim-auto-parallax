@@ -69,24 +69,53 @@ bool FindParallax(RE::BSTextureSet* a_tex, std::string& o_path)
 
 bool HasNiAlphaProperty(RE::BSGeometry* a_geometry)
 {
-	if (auto niProperty = a_geometry->GetGeometryRuntimeData().properties[RE::BSGeometry::States::State::kProperty].get()) {
-		if (auto alphaProperty = netimmerse_cast<RE::NiAlphaProperty*>(niProperty)) {
-			return true;
+	return a_geometry->GetGeometryRuntimeData().properties[RE::BSGeometry::States::State::kProperty] && a_geometry->GetGeometryRuntimeData().properties[RE::BSGeometry::States::State::kProperty].get();
+}
+//
+//uint8_t* ResizeVerts(const uint8_t* in, uint32_t count, uint32_t byteSize)
+//{
+//	byteSize /= sizeof(uint8_t);
+//	uint32_t newByteSize = byteSize + 4;
+//	uint8_t* out = new uint8_t[count * newByteSize];  // num verts * size + vertex color
+//	for (uint32_t i = 0; i < count; i++) { // for each vert
+//		uint32_t base = i * newByteSize;
+//		for (uint32_t k = 0; k < byteSize; k++) { // for each original byte
+//			out[base + k] = in[(i * byteSize) + k];  // vert offset * new size + byte offset
+//		}
+//		for (uint32_t j = 0; j < 4; j++) { // for each new byte
+//			out[base + (byteSize - 1) + j] = (uint8_t)1.0f;  // set to 1.0f
+//		}
+//	}
+//	return out;
+//}
+
+bool MeshHasDecal(RE::NiAVObject* a_node)
+{
+	bool hasDecal = false;
+	RE::BSVisit::TraverseScenegraphGeometries(a_node, [&](RE::BSGeometry* a_geometry) -> RE::BSVisit::BSVisitControl {
+		if (auto effect = a_geometry->GetGeometryRuntimeData().properties[RE::BSGeometry::States::State::kEffect].get()) {
+			if (auto lightingShader = netimmerse_cast<RE::BSLightingShaderProperty*>(effect)) {
+				if (lightingShader->flags.any(RE::BSShaderProperty::EShaderPropertyFlag::kDecal, RE::BSShaderProperty::EShaderPropertyFlag::kDynamicDecal)) {
+					hasDecal = true;
+					return RE::BSVisit::BSVisitControl::kStop;
+				}
+			}
 		}
-	}
-	return false;
+
+		return RE::BSVisit::BSVisitControl::kContinue;
+	});
+	return hasDecal;
 }
 
 auto UpdateMaterialParallax(RE::NiAVObject* a_node)
 {
+	bool hasDecal = MeshHasDecal(a_node);
 	RE::BSVisit::TraverseScenegraphGeometries(a_node, [&](RE::BSGeometry* a_geometry) -> RE::BSVisit::BSVisitControl {
 		if (auto effect = a_geometry->GetGeometryRuntimeData().properties[RE::BSGeometry::States::State::kEffect].get()) {
 			if (auto lightingShader = netimmerse_cast<RE::BSLightingShaderProperty*>(effect)) {
 				const auto material = static_cast<RE::BSLightingShaderMaterialBase*>(lightingShader->material);
 				if (material->GetFeature() == RE::BSShaderMaterial::Feature::kDefault) {
-					if (!lightingShader->flags.any(RE::BSShaderProperty::EShaderPropertyFlag::kProjectedUV, RE::BSShaderProperty::EShaderPropertyFlag::kSkinned, RE::BSShaderProperty::EShaderPropertyFlag::kLODObjects) 
-						&& lightingShader->flags.any(RE::BSShaderProperty::EShaderPropertyFlag::kVertexColors)
-						&& !HasNiAlphaProperty(a_geometry)) {
+					if (!lightingShader->flags.any(RE::BSShaderProperty::EShaderPropertyFlag::kProjectedUV, RE::BSShaderProperty::EShaderPropertyFlag::kSkinned, RE::BSShaderProperty::EShaderPropertyFlag::kLODObjects, RE::BSShaderProperty::EShaderPropertyFlag::kTreeAnim) && lightingShader->flags.any(RE::BSShaderProperty::EShaderPropertyFlag::kVertexColors) && !HasNiAlphaProperty(a_geometry) && !hasDecal) {
 						// It doesn't hurt to check
 						if (material->textureSet) {
 							std::string parallax;
@@ -112,6 +141,11 @@ auto UpdateMaterialParallax(RE::NiAVObject* a_node)
 									lightingShader->SetFlags(RE::BSShaderProperty::EShaderPropertyFlag8::kParallax, true);
 									lightingShader->SetFlags(RE::BSShaderProperty::EShaderPropertyFlag8::kBackLighting, false);
 
+									//auto count = a_geometry->AsTriShape()->GetTrishapeRuntimeData().vertexCount;
+									//auto size = a_geometry->GetGeometryRuntimeData().rendererData->vertexDesc.GetSize();
+									//auto data = a_geometry->GetGeometryRuntimeData().rendererData->rawVertexData;
+									//a_geometry->GetGeometryRuntimeData().rendererData->rawVertexData = ResizeVerts(data, count, size);
+									//a_geometry->GetGeometryRuntimeData().rendererData->vertexDesc.SetFlag(RE::BSGraphics::Vertex::Flags::VF_COLORS);
 									//a_geometry->GetGeometryRuntimeData().vertexDesc.SetFlag(RE::BSGraphics::Vertex::Flags::VF_COLORS);
 									//lightingShader->SetFlags(RE::BSShaderProperty::EShaderPropertyFlag8::kVertexColors, true);
 
