@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.21)
 
 project(
 	AutoParallax
-	VERSION 1.0.2
+	VERSION 1.0.5
 	LANGUAGES CXX
 )
 
