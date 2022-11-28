@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.21)
 
 project(
 	AutoParallax
-	VERSION 1.0.5
+	VERSION 1.0.6
 	LANGUAGES CXX
 )
 
@@ -30,6 +30,4 @@ target_link_libraries(
 	PUBLIC
 		CommonLibSSE::CommonLibSSE
 	PRIVATE 
-		debug ${CMAKE_CURRENT_SOURCE_DIR}/extern/detours/x64/Debug/detours.lib
-		optimized ${CMAKE_CURRENT_SOURCE_DIR}/extern/detours/x64/Release/detours.lib
 )
