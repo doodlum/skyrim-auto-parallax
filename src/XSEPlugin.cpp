@@ -1,8 +1,10 @@
-#include <Detours.h>
+
 #include <SimpleIni.h>
+#include "FormUtil.h"
 
 #define GetSettingBool(a_section, a_setting) a_setting = ini.GetBoolValue(a_section, #a_setting, false);
 
+bool bAutoEnableParallax;
 bool bEnableDebugLog;
 bool bEnableDebugTextures;
 
@@ -12,6 +14,7 @@ void LoadINI()
 	ini.SetUnicode();
 	ini.LoadFile(L"Data\\SKSE\\Plugins\\AutoParallax.ini");
 
+	GetSettingBool("Experimental", bAutoEnableParallax);
 	GetSettingBool("Debug", bEnableDebugLog);
 	GetSettingBool("Debug", bEnableDebugTextures);
 }
@@ -69,7 +72,7 @@ bool FindParallax(RE::BSTextureSet* a_tex, std::string& o_path)
 
 bool HasNiAlphaProperty(RE::BSGeometry* a_geometry)
 {
-	return a_geometry->GetGeometryRuntimeData().properties[RE::BSGeometry::States::State::kProperty] && a_geometry->GetGeometryRuntimeData().properties[RE::BSGeometry::States::State::kProperty].get();
+	return a_geometry->GetGeometryRuntimeData().properties[RE::BSGeometry::States::State::kProperty].get();
 }
 //
 //uint8_t* ResizeVerts(const uint8_t* in, uint32_t count, uint32_t byteSize)
@@ -89,33 +92,28 @@ bool HasNiAlphaProperty(RE::BSGeometry* a_geometry)
 //	return out;
 //}
 
-bool MeshHasDecal(RE::NiAVObject* a_node)
+auto UpdateMaterialParallax(RE::TESObjectREFR* a_ref, RE::NiAVObject* a_node)
 {
-	bool hasDecal = false;
-	RE::BSVisit::TraverseScenegraphGeometries(a_node, [&](RE::BSGeometry* a_geometry) -> RE::BSVisit::BSVisitControl {
-		if (auto effect = a_geometry->GetGeometryRuntimeData().properties[RE::BSGeometry::States::State::kEffect].get()) {
-			if (auto lightingShader = netimmerse_cast<RE::BSLightingShaderProperty*>(effect)) {
-				if (lightingShader->flags.any(RE::BSShaderProperty::EShaderPropertyFlag::kDecal, RE::BSShaderProperty::EShaderPropertyFlag::kDynamicDecal)) {
-					hasDecal = true;
-					return RE::BSVisit::BSVisitControl::kStop;
-				}
-			}
-		}
-
-		return RE::BSVisit::BSVisitControl::kContinue;
-	});
-	return hasDecal;
-}
-
-auto UpdateMaterialParallax(RE::NiAVObject* a_node)
-{
-	bool hasDecal = MeshHasDecal(a_node);
 	RE::BSVisit::TraverseScenegraphGeometries(a_node, [&](RE::BSGeometry* a_geometry) -> RE::BSVisit::BSVisitControl {
 		if (auto effect = a_geometry->GetGeometryRuntimeData().properties[RE::BSGeometry::States::State::kEffect].get()) {
 			if (auto lightingShader = netimmerse_cast<RE::BSLightingShaderProperty*>(effect)) {
 				const auto material = static_cast<RE::BSLightingShaderMaterialBase*>(lightingShader->material);
+				auto       diffuse = material->textureSet.get()->GetTexturePath(RE::BSTextureSet::Textures::kDiffuse);
+				if (diffuse) {
+					std::string dstring = diffuse;
+					if (dstring.contains("TundraMossTEST01")) {
+						logger::info("START");
+						for (int i = 0; i < 64; i++) {
+							static constexpr auto                     BIT64 = static_cast<std::uint64_t>(1);
+							RE::BSShaderProperty::EShaderPropertyFlag flag = (RE::BSShaderProperty::EShaderPropertyFlag)(BIT64 << i);
+							if (lightingShader->flags.any(flag)) {
+								logger::info("flags: {}", i);
+							}
+						}
+					}
+				}
 				if (material->GetFeature() == RE::BSShaderMaterial::Feature::kDefault) {
-					if (!lightingShader->flags.any(RE::BSShaderProperty::EShaderPropertyFlag::kProjectedUV, RE::BSShaderProperty::EShaderPropertyFlag::kSkinned, RE::BSShaderProperty::EShaderPropertyFlag::kLODObjects, RE::BSShaderProperty::EShaderPropertyFlag::kTreeAnim) && lightingShader->flags.any(RE::BSShaderProperty::EShaderPropertyFlag::kVertexColors) && !HasNiAlphaProperty(a_geometry) && !hasDecal) {
+					if (bAutoEnableParallax && !lightingShader->flags.any(RE::BSShaderProperty::EShaderPropertyFlag::kProjectedUV, RE::BSShaderProperty::EShaderPropertyFlag::kSkinned, RE::BSShaderProperty::EShaderPropertyFlag::kLODObjects, RE::BSShaderProperty::EShaderPropertyFlag::kTreeAnim) && lightingShader->flags.any(RE::BSShaderProperty::EShaderPropertyFlag::kVertexColors) && !HasNiAlphaProperty(a_geometry)) {
 						// It doesn't hurt to check
 						if (material->textureSet) {
 							std::string parallax;
@@ -130,12 +128,14 @@ auto UpdateMaterialParallax(RE::NiAVObject* a_node)
 									BSShaderManager_GetTexture(parallax.c_str(), 1, tex, 0, 1, 1);
 									newMaterial->heightTexture = tex;
 
-									if (bEnableDebugLog)
+									if (bEnableDebugLog) {
 										logger::info("{}", parallax);
+									}
 
-									if (bEnableDebugTextures)
+									if (bEnableDebugTextures) {
 										newMaterial->ClearTextures();
-
+									}
+									
 									lightingShader->SetMaterial(newMaterial, true);
 
 									lightingShader->SetFlags(RE::BSShaderProperty::EShaderPropertyFlag8::kParallax, true);
@@ -165,11 +165,23 @@ auto UpdateMaterialParallax(RE::NiAVObject* a_node)
 					if (!lightingShader->flags.any(RE::BSShaderProperty::EShaderPropertyFlag::kProjectedUV) && material->textureSet) {
 						auto parallax = static_cast<RE::BSLightingShaderMaterialParallax*>(lightingShader->material);
 						// Only enable if the parallax file handle exists
-						auto enable = parallax->heightTexture && parallax->heightTexture->unk40;
-						if (enable)
-							lightingShader->SetFlags(RE::BSShaderProperty::EShaderPropertyFlag8::kVertexColors, true);
-						lightingShader->SetFlags(RE::BSShaderProperty::EShaderPropertyFlag8::kParallax, enable);
+						if (parallax->heightTexture && parallax->heightTexture->unk40) 
+						{
+							if (bEnableDebugLog) {
+								logger::info("Disabled {}", FormUtil::GetIdentifierFromForm(a_ref));
+							}
+							if (bEnableDebugTextures) {
+								material->ClearTextures();
+							}
+							
+							lightingShader->SetFlags(RE::BSShaderProperty::EShaderPropertyFlag8::kParallax, false);
+						}
 					} else {
+						if (bEnableDebugLog)
+							logger::info("Disabled {}", FormUtil::GetIdentifierFromForm(a_ref));
+
+						if (bEnableDebugTextures)
+							material->ClearTextures();
 						lightingShader->SetFlags(RE::BSShaderProperty::EShaderPropertyFlag8::kParallax, false);
 					}
 				}
@@ -186,7 +198,7 @@ struct Hooks
 		static RE::NiAVObject* thunk(RE::TESBoundObject* a_base, RE::TESObjectREFR* a_ref, bool a_arg3)
 		{
 			auto ret = func(a_base, a_ref, a_arg3);
-			UpdateMaterialParallax(ret);
+			UpdateMaterialParallax(a_ref, ret);
 			return ret;
 		}
 		static inline REL::Relocation<decltype(thunk)> func;
