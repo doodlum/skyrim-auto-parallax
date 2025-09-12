@@ -112,8 +112,9 @@ auto UpdateMaterialParallax(RE::TESObjectREFR* a_ref, RE::NiAVObject* a_node)
 						}
 					}
 				}
+				// kVertexLighting indicates PBR (internal flag set by CS)
 				if (material->GetFeature() == RE::BSShaderMaterial::Feature::kDefault) {
-					if (bAutoEnableParallax && !lightingShader->flags.any(RE::BSShaderProperty::EShaderPropertyFlag::kProjectedUV, RE::BSShaderProperty::EShaderPropertyFlag::kSkinned, RE::BSShaderProperty::EShaderPropertyFlag::kLODObjects, RE::BSShaderProperty::EShaderPropertyFlag::kTreeAnim) && lightingShader->flags.any(RE::BSShaderProperty::EShaderPropertyFlag::kVertexColors) && !HasNiAlphaProperty(a_geometry)) {
+					if (bAutoEnableParallax && !lightingShader->flags.any(RE::BSShaderProperty::EShaderPropertyFlag::kProjectedUV, RE::BSShaderProperty::EShaderPropertyFlag::kSkinned, RE::BSShaderProperty::EShaderPropertyFlag::kLODObjects, RE::BSShaderProperty::EShaderPropertyFlag::kTreeAnim, RE::BSShaderProperty::EShaderPropertyFlag::kVertexLighting) && lightingShader->flags.any(RE::BSShaderProperty::EShaderPropertyFlag::kVertexColors) && !HasNiAlphaProperty(a_geometry)) {
 						// It doesn't hurt to check
 						if (material->textureSet) {
 							std::string parallax;
