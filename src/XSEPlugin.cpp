@@ -72,7 +72,7 @@ bool FindParallax(RE::BSTextureSet* a_tex, std::string& o_path)
 
 bool HasNiAlphaProperty(RE::BSGeometry* a_geometry)
 {
-	return a_geometry->GetGeometryRuntimeData().properties[RE::BSGeometry::States::State::kProperty].get();
+	return a_geometry->GetGeometryRuntimeData().alphaProperty.get();
 }
 //
 //uint8_t* ResizeVerts(const uint8_t* in, uint32_t count, uint32_t byteSize)
@@ -95,7 +95,7 @@ bool HasNiAlphaProperty(RE::BSGeometry* a_geometry)
 auto UpdateMaterialParallax(RE::TESObjectREFR* a_ref, RE::NiAVObject* a_node)
 {
 	RE::BSVisit::TraverseScenegraphGeometries(a_node, [&](RE::BSGeometry* a_geometry) -> RE::BSVisit::BSVisitControl {
-		if (auto effect = a_geometry->GetGeometryRuntimeData().properties[RE::BSGeometry::States::State::kEffect].get()) {
+		if (auto effect = a_geometry->GetGeometryRuntimeData().shaderProperty.get()) {
 			if (auto lightingShader = netimmerse_cast<RE::BSLightingShaderProperty*>(effect)) {
 				const auto material = static_cast<RE::BSLightingShaderMaterialBase*>(lightingShader->material);
 				auto       diffuse = material->textureSet.get()->GetTexturePath(RE::BSTextureSet::Textures::kDiffuse);
@@ -166,7 +166,7 @@ auto UpdateMaterialParallax(RE::TESObjectREFR* a_ref, RE::NiAVObject* a_node)
 					if (!lightingShader->flags.any(RE::BSShaderProperty::EShaderPropertyFlag::kProjectedUV) && material->textureSet) {
 						auto parallax = static_cast<RE::BSLightingShaderMaterialParallax*>(lightingShader->material);
 						// Only enable if the parallax file handle exists
-						if (parallax->heightTexture && parallax->heightTexture->unk40) 
+						if (parallax->heightTexture && parallax->heightTexture->resourceStream)
 						{
 							if (bEnableDebugLog) {
 								logger::info("Disabled {}", FormUtil::GetIdentifierFromForm(a_ref));
